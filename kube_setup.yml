@@ -1,0 +1,55 @@
+--- 
+ - hosts: nodes
+   tasks: 
+
+    - yum_repository: name=kube description=kube  gpgcheck=0 baseurl=ftp://192.168.10.254/pub/rhel75  file=kubernetes 
+    - yum_repository: name=kube1 gpgcheck=0 description=kube1  baseurl=ftp://192.168.10.254/pub/adhoc/kubernetes  file=kubernetes1 
+   
+    - shell: setenforce 0
+    - shell: sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/selinux/config  
+    - shell: systemctl enable firewalld
+    - shell: systemctl start firewalld
+    - shell: firewall-cmd --add-port=0-65535/tcp --permanent 
+    - shell: firewall-cmd --add-port=0-65535/udp --permanent 
+    - shell: firewall-cmd --reload
+    - shell: swapoff -a
+    - shell: sed -e '/swap/ s/^#*/#/' -i /etc/fstab
+    - shell: modprobe br_netfilter
+    - shell: echo  net.bridge.bridge-nf-call-ip6tables = 1 >>/etc/sysctl.conf
+    - shell: echo net.bridge.bridge-nf-call-iptables = 1 >>/etc/sysctl.conf
+    - shell: sysctl -p 
+   
+    - yum: name={{ item }} state=present
+      with_items: 
+       - docker  
+       - vim    
+       - bash-completion
+       - kubectl
+       - kubeadm
+       - kubelet
+       - net-tools
+    - service: name=docker state=started enabled=yes
+    - service: name=kubelet enabled=yes
+
+
+
+ - hosts: registry 
+   tasks: 
+    - yum_repository: name=kube1 gpgcheck=0 description=kube2  baseurl=ftp://192.168.10.254/pub/adhoc/kubernetes  file=kubernetes1
+    - yum: name=docker state=present 
+    - service: name=docker state=started enabled=yes
+    - shell: docker pull registry
+    - shell: docker pull nginx 
+    - shell: docker run -d -p 5000:5000 --restart always --name myprivregistry  docker.io/registry 
+    - shell: docker tag docker.io/registry    registry:5000
+    - shell: docker tag docker.io/nginx    registry:5000/nginx
+
+
+
+
+ - hosts: nodes
+   tasks: 
+    - name: mkaing push and pull client
+      copy: content=' { "insecure-registries" : [ "registry:5000" ] } '  dest=/etc/docker/daemon.json
+    - shell: systemctl daemon-reload
+    - shell: systemctl restart docker 
